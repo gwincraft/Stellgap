@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  postgres:
+    image: "postgres:13"
+    environment:
+      POSTGRES_DB: stellgap_logs
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  master:
+    build:
+      context: .
+      dockerfile: master/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: stellgap_logs
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - /tmp/stellgap_jobs:/tmp/stellgap_jobs
+    depends_on:
+      - redis
+      - postgres
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      REDIS_HOST: redis
+    volumes:
+      - /tmp/stellgap_jobs:/tmp/stellgap_jobs
+    depends_on:
+      - redis
+    # To run multiple workers, use the command:
+    # docker-compose up --build --scale worker=4
+
+volumes:
+  redis_data:
+  postgres_data:

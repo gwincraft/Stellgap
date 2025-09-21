@@ -1,0 +1,5 @@
+#!/bin/bash
+FC=ifort
+FFLAGS=" -O2 -fixed"
+
+$FC $FFLAGS -o xpost_process_cli post_process_cli.f
