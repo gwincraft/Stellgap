@@ -1,8 +1,8 @@
 import redis
 import json
 import os
-import subprocess
 import time
+from . import stellgap_py
 
 # --- Connection Settings (loaded from environment variables) ---
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -43,32 +43,19 @@ def process_jobs():
             worker_input_filepath = os.path.join(job_dir, worker_input_filename)
             worker_output_filepath = os.path.join(job_dir, worker_output_filename)
 
-            # 1. Create the worker_input.dat file
-            # The Fortran code expects the output file path inside this file.
-            with open(worker_input_filepath, "w") as f:
-                f.write(f"{ir_start}\n")
-                f.write(f"{ir_end}\n")
-                # The Fortran code reads the filename and uses it directly.
-                # It will be created inside the CWD, which is job_dir.
-                f.write(f"{worker_output_filename}\n")
-
-            # 2. Run the Fortran executable
-            # Assumes xstgap_worker is in the PATH.
-            worker_cmd = ["xstgap_worker", str(irads), str(ir_fine_scl)]
-
-            # The Fortran code reads files from the current directory.
-            # So, we must run the subprocess with `cwd=job_dir`.
-            process = subprocess.run(
-                worker_cmd,
-                cwd=job_dir,
-                capture_output=True,
-                text=True
-            )
-
-            if process.returncode != 0:
-                print(f"ERROR: Fortran worker failed for job {job_id}, chunk {chunk_id}.")
-                print(f"STDOUT: {process.stdout}")
-                print(f"STDERR: {process.stderr}")
+            # 2. Run the Python stellgap calculation
+            try:
+                stellgap_py.run_stellgap(
+                    job_dir=job_dir,
+                    ir_start=ir_start,
+                    ir_end=ir_end,
+                    irads=irads,
+                    ir_fine_scl=ir_fine_scl,
+                    outfile_worker=worker_output_filepath
+                )
+            except Exception as e:
+                print(f"ERROR: Python stellgap worker failed for job {job_id}, chunk {chunk_id}.")
+                print(f"Exception: {e}")
                 # Optionally, push an error message to a different Redis queue
                 continue
 
