@@ -1,83 +1,178 @@
-# Stellgap
-Stellgap calculates the shear Alfvén gap structure for 3D configurations (stellarators, RFPs, 3D tokamaks)
+# Stellgap Microservice
 
-These codes are used to calculate shear Alfven continua for 3D configurations, both with and without sound wave coupling effects. The associated paper is D. A. Spong, R. Sanchez, A. Weller, "Shear Alfvén continua in stellarators," Phys. Plasmas 10 (2003) 3217–3224.
-The workflow is as follows:
+Stellgap is a web service that calculates the shear Alfvén gap structure for 3D magnetic configurations like stellarators, RFPs, and 3D tokamaks. It is based on the physics described in the paper: D. A. Spong, R. Sanchez, A. Weller, "Shear Alfvén continua in stellarators," Phys. Plasmas 10 (2003) 3217–3224.
 
-(a) prepare a VMEC equilibrium for the case of interest
+This repository contains a microservice implementation where the core computational logic has been written in Python using NumPy and SciPy.
 
-(b) Run xbooz_xform (from Stellopt code suite) to convert from VMEC coordinates to Boozer coordinates. This run needs the in_booz.* file, which tells it what range of m/n modes to use and the selected surfaces to use from the VMEC run. Typically, the first and last of the VMEC surfaces are removed, because they can sometimes have noisy data.
+## Architecture
 
-(c) Using the boozmn.* file produced in (b), run xmetric_ver* to extract needed data and calculate the metric elements used in the continuum calculation. This produces a file called tae_data_boozer which is used as input for xstgap.
+The application is composed of several components that work together:
 
-(d) The continuum calculation is done by xstgap*. There are two versions: one with sound wave couplings (xstgap_snd_ver*) and one without (xstgap). In addition to ae_data_boozer, these use the input files fourier.dat and plasma.dat. Fourier.dat specifies the set of fourier modes used to represent the continuum eigenmodes and plasma.dat contains information/profiles for the the plasma. The first line of fourier.dat gives the field periods and the surface grid parameters ith and izt used for calculating theta/zeta dependent coefficients of the continuum equation. It is important that these values for ith and izt are exactly the same as were used in the metric_element_create.f code.
+-   **Master Service (`master/`)**: A FastAPI web application that provides the HTTP API for submitting jobs, checking status, and retrieving results.
+-   **Worker Service (`worker/`)**: A Python process that listens for jobs on a Redis queue. It performs the intensive numerical calculations for the Stellgap analysis.
+-   **Redis**: A message broker that facilitates communication between the master and worker services. The master pushes job requests to a queue, and workers pull from this queue.
+-   **PostgreSQL**: A database used by the master service to store metadata about each job, such as its status and progress.
 
-(e) After running xstgap, the post-processing code (either post_process.f or post_process_snd.f) should be run. This produces a text file called alfven_post which contains columns of radial coordinate, frequency, dominant m and dominant n. Typically, the frequency vs. radius is plotted as a scatter plot. The code stelgp_to_silo.f is provided to convert data from alfven_post to a Visit silo file. This allows plotting the continua using the Visit software with the option to color code the points with either the dominant m or n.
-
-
-Compilation scripts are provided for the different codes in the files whose name begins with “bld”. These will need to be edited, depending on what compiler is being used and where the needed libraries are located. Stellgap is constructed so that it can be compiled either as a serial version or a parallel version using precompilation flags. When running in parallel the number of surfaces requested will be divided by the number of processors and each group of surfaces allocated to a different processor. At the end of the run, all processors will write their results out to separate files, with names containing the processor number. These must be concatenated together in the post-processing step (e.g., as done in the post_process_snd.f code).
-
-Running the Stellgap Microservice (gprechel)
-This document describes how to set up and run the Stellgap microservice. The core computational logic has been rewritten in Python, simplifying the setup process.
+## Running the Application
 
 There are two ways to run the application: using Docker Compose (recommended for a complete setup) or running the components manually.
 
-Prerequisites
-For the Docker setup:
-Docker
-Docker Compose
-For the manual setup:
-Python 3.8+
-A running Redis instance.
-Running with Docker Compose (Recommended)
-Using Docker Compose is the simplest way to get the entire application stack (master API, worker, and Redis) running.
+### Running with Docker Compose (Recommended)
 
-Build and Start the Services
+Using Docker Compose is the simplest way to get the entire application stack (master API, worker, Redis, and PostgreSQL) running.
+
+**Prerequisites:**
+-   Docker
+-   Docker Compose
+
+**1. Build and Start the Services**
 
 From the root directory of the repository, run the following command:
 
+```bash
 docker-compose up --build
+```
+
 This will:
+-   Build the Docker images for the `master` and `worker` services.
+-   Start containers for the master API, one or more workers, a Redis broker, and a PostgreSQL database.
 
-Build the Docker images for the master and worker services using their respective Dockerfiles.
-Start the containers for the master API, the worker, and the Redis message broker.
-The master API will be accessible at http://localhost:8000. You can view the interactive API documentation at http://localhost:8000/docs.
-Shutting Down
+The master API will be accessible at `http://localhost:8000`. You can view the interactive API documentation (via Swagger UI) at `http://localhost:8000/docs`.
 
-To stop all the running services, press Ctrl+C in the terminal, and then run:
+**2. Shutting Down**
 
+To stop all the running services, press `Ctrl+C` in the terminal where `docker-compose` is running, and then run:
+
+```bash
 docker-compose down
-Running Manually
+```
+
+### Running Manually
+
 If you prefer to run the services locally without Docker, follow these steps.
 
-1. Start Redis
-You need a Redis server running. If you have one installed locally, ensure it's started. Alternatively, you can easily start one using Docker:
+**Prerequisites:**
+-   Python 3.8+
+-   A running Redis instance.
+-   A running PostgreSQL instance.
 
-docker run -d -p 6379:6379 redis
-2. Install Dependencies
+**1. Start Redis and PostgreSQL**
+
+Ensure you have Redis and PostgreSQL servers running and accessible. You can install them locally or run them via Docker:
+
+```bash
+# Start Redis
+docker run -d -p 6379:6379 --name stellgap-redis redis
+
+# Start PostgreSQL
+docker run -d -p 5432:5432 --name stellgap-postgres \
+  -e POSTGRES_USER=user \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=stellgap_logs \
+  postgres
+```
+
+**2. Install Dependencies**
+
 Create and activate a Python virtual environment (recommended):
 
+```bash
 python3 -m venv venv
 source venv/bin/activate
-(On Windows, the activation command is venv\Scripts\activate)
+# On Windows, use: venv\Scripts\activate
+```
 
 Install the required packages:
 
+```bash
 pip install -r requirements.txt
-3. Run the Services
-You will need two separate terminal sessions to run the master and worker services. Make sure the Python virtual environment is activated in both.
+```
 
-Terminal 1: Start the Worker
+**3. Configure Environment Variables**
 
-The worker connects to Redis and waits for jobs to process.
+The services connect to Redis and PostgreSQL using environment variables. If your database instances are running on different hosts or with different credentials, set the following variables:
+-   `REDIS_HOST`
+-   `REDIS_PORT`
+-   `POSTGRES_DB`
+-   `POSTGRES_USER`
+-   `POSTGRES_PASSWORD`
+-   `POSTGRES_HOST`
 
+**4. Run the Services**
+
+You will need two separate terminal sessions. Make sure the Python virtual environment is activated in both.
+
+**Terminal 1: Start the Worker**
+
+```bash
 python -m worker.app.main
-You should see a message indicating that the worker process has started.
+```
+You should see a message indicating the worker has started and is waiting for jobs.
 
-Terminal 2: Start the Master API
+**Terminal 2: Start the Master API**
 
-The master service runs the FastAPI application that receives requests to start calculations.
-
+```bash
 uvicorn master.app.main:app --host 0.0.0.0 --port 8000
-The API will now be running and accessible at http://localhost:8000.
+```
+The API will now be running and accessible at `http://localhost:8000`.
 
+## API Usage
+
+You can interact with the API using any HTTP client (like `curl` or `requests`) or by using the interactive documentation at `http://localhost:8000/docs`.
+
+### 1. Submit a Job
+
+To start a calculation, send a `POST` request to the `/jobs` endpoint. The request must be a `multipart/form-data` request containing three input files:
+
+-   `tae_data_boozer`: The Boozer coordinate data file.
+-   `fourier_dat`: The file specifying the Fourier modes.
+-   `plasma_dat`: The file containing plasma information and profiles.
+
+**Example using `curl`:**
+
+```bash
+curl -X POST "http://localhost:8000/jobs" \
+     -F "tae_data_boozer=@/path/to/your/tae_data_boozer" \
+     -F "fourier_dat=@/path/to/your/fourier.dat" \
+     -F "plasma_dat=@/path/to/your/plasma.dat"
+```
+
+The server will respond with a unique `job_id`:
+
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+  "status": "processing"
+}
+```
+
+### 2. Check Job Status
+
+You can check the progress of a job by sending a `GET` request to `/jobs/{job_id}`:
+
+**Example using `curl`:**
+
+```bash
+curl -X GET "http://localhost:8000/jobs/a1b2c3d4-e5f6-7890-1234-567890abcdef"
+```
+
+The response will show the current status and progress:
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+  "status": "processing",
+  "progress": "2/4 chunks completed"
+}
+```
+When the job is finished, the status will change to `completed`.
+
+### 3. Retrieve the Result
+
+Once a job's status is `completed`, you can download the result file by sending a `GET` request to `/jobs/{job_id}/result`.
+
+**Example using `curl`:**
+
+```bash
+curl -X GET "http://localhost:8000/jobs/a1b2c3d4-e5f6-7890-1234-567890abcdef/result" -o alfven_post
+```
+This will save the result to a file named `alfven_post` in your current directory.
