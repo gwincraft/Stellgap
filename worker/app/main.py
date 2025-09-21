@@ -82,13 +82,15 @@ def process_jobs():
             redis_conn.lpush("stellgap:results", json.dumps(result_message))
             print(f"Finished job {job_id}, chunk {chunk_id}.")
 
-        except redis.exceptions.ConnectionError:
-            print("Redis connection lost. Reconnecting in 5 seconds...")
-            time.sleep(5)
-            redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
         except Exception as e:
-            print(f"An unexpected error occurred in the worker: {e}")
+            print(f"An error occurred in the worker loop: {e}. Reconnecting in 5 seconds...")
             time.sleep(5)
+            try:
+                redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+                print("Worker reconnected to Redis.")
+            except Exception as redis_e:
+                print(f"Failed to reconnect to Redis: {redis_e}")
+                time.sleep(5) # Wait before retrying the main loop
 
 
 if __name__ == "__main__":

@@ -125,20 +125,18 @@ def listen_for_results():
 
                     pg_conn.commit()
 
-        except redis.exceptions.ConnectionError:
-            print("Redis connection lost. Reconnecting in 5 seconds...")
-            time.sleep(5)
-            redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
-        except psycopg2.OperationalError:
-            print("PostgreSQL connection lost. Reconnecting in 5 seconds...")
-            time.sleep(5)
-            pg_conn = psycopg2.connect(
-                dbname=POSTGRES_DB, user=POSTGRES_USER, password=POSTGRES_PASSWORD, host=POSTGRES_HOST
-            )
         except Exception as e:
-            print(f"An unexpected error occurred in the result listener: {e}")
-            # Add a small delay to prevent rapid-fire error loops
+            print(f"An error occurred in the listener loop: {e}. Reconnecting in 5 seconds...")
             time.sleep(5)
+            try:
+                redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+                pg_conn = psycopg2.connect(
+                    dbname=POSTGRES_DB, user=POSTGRES_USER, password=POSTGRES_PASSWORD, host=POSTGRES_HOST
+                )
+                print("Listener reconnected to Redis and PostgreSQL.")
+            except Exception as conn_e:
+                print(f"Failed to reconnect: {conn_e}")
+                time.sleep(5) # Wait before retrying the main loop
 
 
 if __name__ == "__main__":

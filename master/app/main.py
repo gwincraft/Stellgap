@@ -9,8 +9,8 @@ import json
 from typing import List
 import multiprocessing
 from .result_listener import listen_for_results
-
-app = FastAPI()
+from contextlib import asynccontextmanager
+from fastapi import Request
 
 # --- Connection Settings (loaded from environment variables) ---
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -21,39 +21,33 @@ POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 # --------------------------------------------------------------------------------
 
-# Global variable to hold the listener process
-listener_process = None
-
-# Connect to Redis
-try:
-    redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
-    redis_conn.ping()
-    print("Successfully connected to Redis")
-except redis.exceptions.ConnectionError as e:
-    print(f"Could not connect to Redis: {e}")
-    redis_conn = None
-
-# Connect to PostgreSQL
-try:
-    pg_conn = psycopg2.connect(
-        dbname=POSTGRES_DB,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-        host=POSTGRES_HOST
-    )
-    print("Successfully connected to PostgreSQL")
-except psycopg2.OperationalError as e:
-    print(f"Could not connect to PostgreSQL: {e}")
-    pg_conn = None
-
 # Shared directory for job data
 SHARED_DATA_DIR = "/tmp/stellgap_jobs"
 os.makedirs(SHARED_DATA_DIR, exist_ok=True)
 
-def setup_database():
-    """Create the jobs table if it doesn't exist."""
-    if pg_conn:
-        with pg_conn.cursor() as cur:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Startup ---
+    # Connect to Redis
+    try:
+        app.state.redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+        app.state.redis_conn.ping()
+        print("Successfully connected to Redis")
+    except redis.exceptions.ConnectionError as e:
+        print(f"Could not connect to Redis: {e}")
+        app.state.redis_conn = None
+
+    # Connect to PostgreSQL
+    try:
+        app.state.pg_conn = psycopg2.connect(
+            dbname=POSTGRES_DB,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            host=POSTGRES_HOST
+        )
+        print("Successfully connected to PostgreSQL")
+        # Create the jobs table if it doesn't exist
+        with app.state.pg_conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS jobs (
                     job_id UUID PRIMARY KEY,
@@ -68,28 +62,36 @@ def setup_database():
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            pg_conn.commit()
+            app.state.pg_conn.commit()
             print("Database table 'jobs' is set up.")
+    except psycopg2.OperationalError as e:
+        print(f"Could not connect to PostgreSQL: {e}")
+        app.state.pg_conn = None
 
-@app.on_event("startup")
-def on_startup():
-    global listener_process
-    setup_database()
+    # Start the result listener process
     print("Starting result listener process...")
-    listener_process = multiprocessing.Process(target=listen_for_results, daemon=True)
-    listener_process.start()
+    app.state.listener_process = multiprocessing.Process(target=listen_for_results, daemon=True)
+    app.state.listener_process.start()
 
-@app.on_event("shutdown")
-def on_shutdown():
-    global listener_process
-    if listener_process and listener_process.is_alive():
+    yield
+
+    # --- Shutdown ---
+    if app.state.listener_process and app.state.listener_process.is_alive():
         print("Terminating result listener process...")
-        listener_process.terminate()
-        listener_process.join()
+        app.state.listener_process.terminate()
+        app.state.listener_process.join()
+
+    if app.state.redis_conn:
+        app.state.redis_conn.close()
+    if app.state.pg_conn:
+        app.state.pg_conn.close()
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/jobs", status_code=202)
 async def create_job(
+    request: Request,
     ir_fine_scl: int = 128, # This should be determined from input files later
     num_workers: int = 4,   # This can be a parameter
     iopt: int = 1,          # Placeholder
@@ -102,6 +104,8 @@ async def create_job(
     """
     Creates and starts a new Stellgap calculation job.
     """
+    redis_conn = request.app.state.redis_conn
+    pg_conn = request.app.state.pg_conn
     if not redis_conn or not pg_conn:
         raise HTTPException(status_code=503, detail="Service unavailable: could not connect to Redis or PostgreSQL")
 
@@ -162,10 +166,11 @@ async def create_job(
 
 
 @app.get("/jobs/{job_id}")
-async def get_job_status(job_id: str):
+async def get_job_status(request: Request, job_id: str):
     """
     Retrieves the status of a specific job.
     """
+    pg_conn = request.app.state.pg_conn
     if not pg_conn:
         raise HTTPException(status_code=503, detail="Service unavailable: could not connect to PostgreSQL")
 
@@ -185,10 +190,11 @@ async def get_job_status(job_id: str):
 
 
 @app.get("/jobs/{job_id}/result")
-async def get_job_result(job_id: str):
+async def get_job_result(request: Request, job_id: str):
     """
     Retrieves the final result file for a completed job.
     """
+    pg_conn = request.app.state.pg_conn
     if not pg_conn:
         raise HTTPException(status_code=503, detail="Service unavailable: could not connect to PostgreSQL")
 

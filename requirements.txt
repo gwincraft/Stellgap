@@ -3,3 +3,9 @@ uvicorn
 redis
 psycopg2-binary
 numpy
+pytest
+pytest-mock
+fakeredis
+testing.postgresql
+httpx
+python-multipart
