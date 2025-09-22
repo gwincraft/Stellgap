@@ -1,6 +1,6 @@
 # Stellgap Microservice
 
-Stellgap calculates the shear Alfvén gap structure for 3D configurations (stellarators, RFPs, 3D tokamaks). This repository contains a Python-based microservice that has fully ported the legacy Fortran implementation.
+Stellgap calculates the shear Alfvén gap structure for 3D configurations (stellarators, RFPs, 3D tokamaks). The core computational engine in this repository is a Python-based microservice, which is a port of the original legacy Fortran implementation.
 
 The associated paper for the original physics code is D. A. Spong, R. Sanchez, A. Weller, "Shear Alfvén continua in stellarators," Phys. Plasmas 10 (2003) 3217–3224.
 
@@ -111,3 +111,40 @@ curl -X 'POST' \
 ```
 
 The API will respond with a `job_id`. You can use this ID to check the job's status and retrieve the final results.
+
+## Visualizing Results
+
+The primary output of a successful job is the `alfven_post` file, which contains the calculated continuum data. This repository includes a Fortran-based utility to convert this file into the Silo format, which can be visualized with tools like VisIt.
+
+### Visualization Prerequisites
+
+To compile the visualization utility, you will need:
+*   A Fortran compiler (e.g., `gfortran` or `ifort`).
+*   The Silo library installed on your system.
+
+### Compiling the Utility
+
+A build script, `bld_silo`, is provided but contains a hardcoded path to the Silo library and may not work on your system. It is recommended to compile the utility manually.
+
+Navigate to the root of the repository and run a command similar to the following, replacing `/path/to/your/silo/lib` with the actual path to your Silo installation's library directory:
+
+```bash
+# Using gfortran
+gfortran -o xsilo stelgp_to_silo.f -I/path/to/your/silo/include -L/path/to/your/silo/lib -lsilo
+
+# Or using ifort
+ifort -o xsilo stelgp_to_silo.f -I/path/to/your/silo/include -L/path/to/your/silo/lib -lsilo
+```
+
+This will create an executable file named `xsilo`.
+
+### Generating the Visualization File
+
+After a job has completed and the `alfven_post` file is available in the job's output directory:
+
+1.  Copy the `xsilo` executable and the `alfven_post` file into the same directory.
+2.  Navigate to that directory and run the executable:
+    ```bash
+    ./xsilo
+    ```
+3.  This will generate a `stellgap.silo` file, which you can then open with VisIt or another compatible viewer.
