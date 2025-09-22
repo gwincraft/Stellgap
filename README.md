@@ -1,83 +1,113 @@
-# Stellgap
-Stellgap calculates the shear Alfvén gap structure for 3D configurations (stellarators, RFPs, 3D tokamaks)
+# Stellgap Microservice
 
-These codes are used to calculate shear Alfven continua for 3D configurations, both with and without sound wave coupling effects. The associated paper is D. A. Spong, R. Sanchez, A. Weller, "Shear Alfvén continua in stellarators," Phys. Plasmas 10 (2003) 3217–3224.
-The workflow is as follows:
+Stellgap calculates the shear Alfvén gap structure for 3D configurations (stellarators, RFPs, 3D tokamaks). This repository contains a Python-based microservice that has fully ported the legacy Fortran implementation.
 
-(a) prepare a VMEC equilibrium for the case of interest
+The associated paper for the original physics code is D. A. Spong, R. Sanchez, A. Weller, "Shear Alfvén continua in stellarators," Phys. Plasmas 10 (2003) 3217–3224.
 
-(b) Run xbooz_xform (from Stellopt code suite) to convert from VMEC coordinates to Boozer coordinates. This run needs the in_booz.* file, which tells it what range of m/n modes to use and the selected surfaces to use from the VMEC run. Typically, the first and last of the VMEC surfaces are removed, because they can sometimes have noisy data.
+## Workflow Overview
 
-(c) Using the boozmn.* file produced in (b), run xmetric_ver* to extract needed data and calculate the metric elements used in the continuum calculation. This produces a file called tae_data_boozer which is used as input for xstgap.
+The microservice automates the entire calculation workflow. The user initiates a job by making a request to the master server's API, which then orchestrates the following steps:
 
-(d) The continuum calculation is done by xstgap*. There are two versions: one with sound wave couplings (xstgap_snd_ver*) and one without (xstgap). In addition to ae_data_boozer, these use the input files fourier.dat and plasma.dat. Fourier.dat specifies the set of fourier modes used to represent the continuum eigenmodes and plasma.dat contains information/profiles for the the plasma. The first line of fourier.dat gives the field periods and the surface grid parameters ith and izt used for calculating theta/zeta dependent coefficients of the continuum equation. It is important that these values for ith and izt are exactly the same as were used in the metric_element_create.f code.
+1.  **Pre-processing**: The service ingests a `boozmn.dat` file (from a VMEC/BOOZ_XFORM run), and calculates the necessary metric tensor elements, generating the `tae_data_boozer` file internally.
+2.  **Parallel Calculation**: The main `stellgap` calculation is divided into chunks and distributed to multiple worker processes. Each worker runs a portion of the calculation in parallel.
+3.  **Post-processing**: Once all workers have completed, their results are collected and post-processed to generate the final `alfven_post` output file, which contains the continuum data.
 
-(e) After running xstgap, the post-processing code (either post_process.f or post_process_snd.f) should be run. This produces a text file called alfven_post which contains columns of radial coordinate, frequency, dominant m and dominant n. Typically, the frequency vs. radius is plotted as a scatter plot. The code stelgp_to_silo.f is provided to convert data from alfven_post to a Visit silo file. This allows plotting the continua using the Visit software with the option to color code the points with either the dominant m or n.
+## Running the Stellgap Microservice
 
-
-Compilation scripts are provided for the different codes in the files whose name begins with “bld”. These will need to be edited, depending on what compiler is being used and where the needed libraries are located. Stellgap is constructed so that it can be compiled either as a serial version or a parallel version using precompilation flags. When running in parallel the number of surfaces requested will be divided by the number of processors and each group of surfaces allocated to a different processor. At the end of the run, all processors will write their results out to separate files, with names containing the processor number. These must be concatenated together in the post-processing step (e.g., as done in the post_process_snd.f code).
-
-Running the Stellgap Microservice (gprechel)
-This document describes how to set up and run the Stellgap microservice. The core computational logic has been rewritten in Python, simplifying the setup process.
+This document describes how to set up and run the Stellgap microservice. The entire computational logic, including pre- and post-processing, is written in Python, simplifying the setup process.
 
 There are two ways to run the application: using Docker Compose (recommended for a complete setup) or running the components manually.
 
-Prerequisites
+### Prerequisites
+
 For the Docker setup:
-Docker
-Docker Compose
+*   Docker
+*   Docker Compose
+
 For the manual setup:
-Python 3.8+
-A running Redis instance.
-Running with Docker Compose (Recommended)
+*   Python 3.8+
+*   A running Redis instance.
+
+### Running with Docker Compose (Recommended)
+
 Using Docker Compose is the simplest way to get the entire application stack (master API, worker, and Redis) running.
 
-Build and Start the Services
+**Build and Start the Services**
 
 From the root directory of the repository, run the following command:
-
+```bash
 docker-compose up --build
+```
 This will:
+*   Build the Docker images for the master and worker services.
+*   Start containers for the master API, the worker, and the Redis message broker.
 
-Build the Docker images for the master and worker services using their respective Dockerfiles.
-Start the containers for the master API, the worker, and the Redis message broker.
-The master API will be accessible at http://localhost:8000. You can view the interactive API documentation at http://localhost:8000/docs.
-Shutting Down
+The master API will be accessible at `http://localhost:8000`. You can view the interactive API documentation at `http://localhost:8000/docs`.
 
-To stop all the running services, press Ctrl+C in the terminal, and then run:
+**Shutting Down**
 
+To stop all the running services, press Ctrl+C in the terminal where compose is running, and then run:
+```bash
 docker-compose down
-Running Manually
+```
+
+### Running Manually
+
 If you prefer to run the services locally without Docker, follow these steps.
 
-1. Start Redis
+**1. Start Redis**
+
 You need a Redis server running. If you have one installed locally, ensure it's started. Alternatively, you can easily start one using Docker:
-
+```bash
 docker run -d -p 6379:6379 redis
-2. Install Dependencies
-Create and activate a Python virtual environment (recommended):
+```
 
+**2. Install Dependencies**
+
+Create and activate a Python virtual environment (recommended):
+```bash
 python3 -m venv venv
 source venv/bin/activate
-(On Windows, the activation command is venv\Scripts\activate)
-
+# On Windows, use `venv\Scripts\activate`
+```
 Install the required packages:
-
+```bash
 pip install -r requirements.txt
-3. Run the Services
+```
+
+**3. Run the Services**
+
 You will need two separate terminal sessions to run the master and worker services. Make sure the Python virtual environment is activated in both.
 
-Terminal 1: Start the Worker
-
-The worker connects to Redis and waits for jobs to process.
-
+**Terminal 1: Start the Worker**
+```bash
 python -m worker.app.main
-You should see a message indicating that the worker process has started.
+```
+You should see a message indicating that the worker process has started and is waiting for jobs.
 
-Terminal 2: Start the Master API
-
-The master service runs the FastAPI application that receives requests to start calculations.
-
+**Terminal 2: Start the Master API**
+```bash
 uvicorn master.app.main:app --host 0.0.0.0 --port 8000
-The API will now be running and accessible at http://localhost:8000.
+```
+The API will now be running and accessible at `http://localhost:8000`.
 
+### Using the API
+
+To start a new calculation, you send a `POST` request to the `/jobs` endpoint. The request must be a `multipart/form-data` request containing the following three files:
+
+*   `boozmn_file`: The `boozmn.dat` file from your equilibrium calculation.
+*   `fourier_dat`: The `fourier.dat` file specifying the Fourier modes.
+*   `plasma_dat`: The `plasma.dat` file containing plasma profiles and parameters.
+
+You can easily do this using the interactive documentation at `http://localhost:8000/docs` or with a tool like `curl`:
+
+```bash
+curl -X 'POST' \
+  'http://localhost:8000/jobs' \
+  -H 'accept: application/json' \
+  -F 'boozmn_file=@/path/to/your/boozmn.dat' \
+  -F 'fourier_dat=@/path/to/your/fourier.dat' \
+  -F 'plasma_dat=@/path/to/your/plasma.dat'
+```
+
+The API will respond with a `job_id`. You can use this ID to check the job's status and retrieve the final results.

@@ -9,6 +9,8 @@ import json
 from typing import List
 import multiprocessing
 from .result_listener import listen_for_results
+from .boozmn_reader import read_boozmn_file
+from .pre_processor import create_tae_data
 from contextlib import asynccontextmanager
 from fastapi import Request
 
@@ -97,7 +99,7 @@ async def create_job(
     iopt: int = 1,          # Placeholder
     nang2: int = 10,         # Placeholder, should be from fourier.dat
     isym_pos: int = 1,      # Placeholder
-    tae_data_boozer: UploadFile = File(...),
+    boozmn_file: UploadFile = File(...),
     fourier_dat: UploadFile = File(...),
     plasma_dat: UploadFile = File(...)
 ):
@@ -114,18 +116,27 @@ async def create_job(
     os.makedirs(job_dir)
 
     try:
-        # Save uploaded files to the job-specific directory
-        with open(os.path.join(job_dir, "tae_data_boozer"), "wb") as f:
-            f.write(await tae_data_boozer.read())
+        # --- Pre-processing Step ---
+        # Save the boozmn file temporarily
+        boozmn_path = os.path.join(job_dir, "boozmn.dat")
+        with open(boozmn_path, "wb") as f:
+            f.write(await boozmn_file.read())
+
+        # Read the boozmn file
+        boozer_data = read_boozmn_file(boozmn_path)
+
+        # Generate tae_data_boozer content
+        tae_data_content = create_tae_data(boozer_data)
+
+        # Save the generated tae_data_boozer file
+        with open(os.path.join(job_dir, "tae_data_boozer"), "w") as f:
+            f.write(tae_data_content)
+
+        # Save the other uploaded files
         with open(os.path.join(job_dir, "fourier.dat"), "wb") as f:
             f.write(await fourier_dat.read())
         with open(os.path.join(job_dir, "plasma.dat"), "wb") as f:
             f.write(await plasma_dat.read())
-
-        # TODO: This is where the pre-processing step would run to generate
-        # the large common data arrays (bfield_lrg, gsssup_lrg, etc.).
-        # For now, we assume the worker has access to them or they are
-        # generated from the inputs.
 
         # Log the new job in PostgreSQL
         with pg_conn.cursor() as cur:
