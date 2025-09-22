@@ -2,8 +2,8 @@ import redis
 import psycopg2
 import json
 import os
-import subprocess
 import time
+from .post_processor import post_process_results
 
 # --- Connection Settings (loaded from environment variables) ---
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -91,36 +91,27 @@ def listen_for_results():
                     if not worker_files:
                         raise Exception("No worker output files found for completed job.")
 
-                    # Run the post-processing Fortran executable
-                    # Assumes xpost_process_cli is in the PATH
-                    post_process_cmd = ["xpost_process_cli"] + worker_files
-
-                    # Create the data_post file with the values from the database
-                    data_post_content = f"{iopt} {nang2} {irads} {isym_pos}"
-                    with open(os.path.join(job_dir, "data_post"), "w") as f:
-                        f.write(data_post_content)
-
-                    # We need to run the command from the job directory so it can find the input files
-                    process = subprocess.run(
-                        post_process_cmd,
-                        cwd=job_dir,
-                        capture_output=True,
-                        text=True
-                    )
-
-                    if process.returncode != 0:
-                        print(f"ERROR: Post-processing failed for job {job_id}.")
-                        print(f"STDOUT: {process.stdout}")
-                        print(f"STDERR: {process.stderr}")
-                        # Update job status to 'failed'
-                        cur.execute(
-                            "UPDATE jobs SET status = 'failed' WHERE job_id = %s", (job_id,)
+                    # Run the post-processing Python function
+                    try:
+                        post_process_results(
+                            job_dir=job_dir,
+                            worker_files=worker_files,
+                            iopt=iopt,
+                            nang2=nang2,
+                            irads=irads,
+                            isym_pos=isym_pos
                         )
-                    else:
                         print(f"Post-processing successful for job {job_id}.")
                         # Update job status to 'completed'
                         cur.execute(
                             "UPDATE jobs SET status = 'completed' WHERE job_id = %s", (job_id,)
+                        )
+                    except Exception as e:
+                        print(f"ERROR: Python post-processing failed for job {job_id}.")
+                        print(f"Exception: {e}")
+                        # Update job status to 'failed'
+                        cur.execute(
+                            "UPDATE jobs SET status = 'failed' WHERE job_id = %s", (job_id,)
                         )
 
                     pg_conn.commit()
