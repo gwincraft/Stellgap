@@ -1,3 +1,13 @@
+c ----------------------------------------------------------------------
+c NOTE: This is a post-processing utility and not part of the core
+c       Stellgap microservice workflow.
+c
+c This program reads the 'alfven_post' output file and converts it
+c into the Silo format (.silo) for visualization with tools like VisIt.
+c
+c To compile this code, you need a Fortran compiler (e.g., gfortran)
+c and the Silo library. See the README.md for detailed instructions.
+c ----------------------------------------------------------------------
 c
 c  this code reads data from alfven_post and converts it
 c   to a .silo file for use in Visit. Note below that independent

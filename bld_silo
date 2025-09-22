@@ -1,3 +1,11 @@
+# ----------------------------------------------------------------------
+# DEPRECATED: This script contains hardcoded paths and is not
+# recommended for use.
+#
+# Please see the "Visualizing Results" section in the README.md file
+# for up-to-date instructions on how to compile the Fortran utility.
+# ----------------------------------------------------------------------
+
 ifort -O -c stelgp_to_silo.f
 ifort -O -o xsilo stelgp_to_silo.o \
  -L/Users/dsp/fortran_code_development/Silo-4.6.2/lib -lsilo

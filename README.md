@@ -1,6 +1,6 @@
 # Stellgap Microservice
 
-Stellgap calculates the shear Alfvén gap structure for 3D configurations (stellarators, RFPs, 3D tokamaks). This repository contains a Python-based microservice that has fully ported the legacy Fortran implementation.
+Stellgap calculates the shear Alfvén gap structure for 3D configurations (stellarators, RFPs, 3D tokamaks). The core computational engine in this repository is a Python-based microservice, which is a port of the original legacy Fortran implementation.
 
 The associated paper for the original physics code is D. A. Spong, R. Sanchez, A. Weller, "Shear Alfvén continua in stellarators," Phys. Plasmas 10 (2003) 3217–3224.
 
@@ -111,3 +111,72 @@ curl -X 'POST' \
 ```
 
 The API will respond with a `job_id`. You can use this ID to check the job's status and retrieve the final results.
+
+### Submitting a Job with a Python Script (Alternative to `curl`)
+
+For users who prefer a more structured way to start a job, a Python script `run_job.py` is provided in the root of this repository. This script is a user-friendly wrapper for the API.
+
+**1. Install Dependencies**
+
+The script requires the `requests` library. If you installed the project's dependencies from `requirements.txt`, you already have it. If not, you can install it manually:
+```bash
+pip install requests
+```
+
+**2. Configure the Script**
+
+Open the `run_job.py` file in a text editor. You will need to edit the `INPUT_DIR` variable to point to the directory on your local machine where your `boozmn.dat`, `fourier.dat`, and `plasma.dat` files are located.
+
+```python
+# --- Input File Paths ---
+# IMPORTANT: Replace this with the actual path to the directory containing your input files.
+# ...
+# On macOS/Linux, your path might look like: "/Users/yourname/stellgap_runs/my_first_run"
+# On Windows, your path might look like: "C:\\Users\\yourname\\stellgap_runs\\my_first_run"
+INPUT_DIR = "/path/to/your/input/files"
+```
+
+**3. Run the Script**
+
+Once the `INPUT_DIR` is correctly set, you can execute the script from your terminal:
+```bash
+python run_job.py
+```
+The script will print the status of the submission and the `job_id` if it is successful. It also provides helpful error messages if it cannot connect to the server or if the input files are not found.
+
+## Visualizing Results
+
+The primary output of a successful job is the `alfven_post` file, which contains the calculated continuum data. This repository includes a Fortran-based utility to convert this file into the Silo format, which can be visualized with tools like VisIt.
+
+### Visualization Prerequisites
+
+To compile the visualization utility, you will need:
+*   A Fortran compiler (e.g., `gfortran` or `ifort`).
+*   The Silo library installed on your system.
+
+### Compiling the Utility
+
+A build script, `bld_silo`, is provided but contains a hardcoded path to the Silo library and may not work on your system. It is recommended to compile the utility manually.
+
+Navigate to the root of the repository and run a command similar to the following, replacing `/path/to/your/silo/lib` with the actual path to your Silo installation's library directory:
+
+```bash
+# Using gfortran
+gfortran -o xsilo stelgp_to_silo.f -I/path/to/your/silo/include -L/path/to/your/silo/lib -lsilo
+
+# Or using ifort
+ifort -o xsilo stelgp_to_silo.f -I/path/to/your/silo/include -L/path/to/your/silo/lib -lsilo
+```
+
+This will create an executable file named `xsilo`.
+
+### Generating the Visualization File
+
+After a job has completed and the `alfven_post` file is available in the job's output directory:
+
+1.  Copy the `xsilo` executable and the `alfven_post` file into the same directory.
+2.  Navigate to that directory and run the executable:
+    ```bash
+    ./xsilo
+    ```
+3.  This will generate a `stellgap.silo` file, which you can then open with VisIt or another compatible viewer.
