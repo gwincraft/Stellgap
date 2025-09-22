@@ -44,6 +44,12 @@ This will:
 
 The master API will be accessible at `http://localhost:8000`. You can view the interactive API documentation at `http://localhost:8000/docs`.
 
+Note: Building in such a way will spawn a single worker container.  To spawn multiple worker (example of 4) containers.  Worker containers share system resources, but are responsible for handling chunks in parallel.
+
+```bash
+docker-compose up --build --scale worker=4
+```
+
 **Shutting Down**
 
 To stop all the running services, press Ctrl+C in the terminal where compose is running, and then run:
