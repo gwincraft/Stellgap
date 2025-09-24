@@ -32,7 +32,7 @@ services:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
     volumes:
-      - /tmp/stellgap_jobs:/tmp/stellgap_jobs
+      - stellgap_jobs_volume:/tmp/stellgap_jobs
     depends_on:
       - redis
       - postgres
@@ -44,7 +44,7 @@ services:
     environment:
       REDIS_HOST: redis
     volumes:
-      - /tmp/stellgap_jobs:/tmp/stellgap_jobs
+      - stellgap_jobs_volume:/tmp/stellgap_jobs
     depends_on:
       - redis
     # To run multiple workers, use the command:
@@ -53,3 +53,4 @@ services:
 volumes:
   redis_data:
   postgres_data:
+  stellgap_jobs_volume:
