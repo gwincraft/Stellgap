@@ -11,12 +11,20 @@ import numpy as np
 os.environ['POSTGRES_DB'] = 'testdb'
 
 @pytest.fixture
-def client(mocker):
+def client(mocker, tmp_path, monkeypatch):
     """
     This fixture provides a TestClient for the master app.
     It mocks all external dependencies (redis, postgres, multiprocessing)
     *before* importing the app to ensure the lifespan manager uses the mocks.
     """
+    # Create a temporary directory for job data
+    mock_job_dir = tmp_path / "stellgap_jobs"
+    mock_job_dir.mkdir()
+
+    # Monkeypatch the SHARED_DATA_DIR constant in the main app module
+    # This ensures that the app, when it runs, uses our temporary directory
+    monkeypatch.setattr("master.app.main.SHARED_DATA_DIR", str(mock_job_dir))
+
     mocker.patch('redis.Redis', return_value=MagicMock())
     mocker.patch('psycopg2.connect', return_value=MagicMock())
     mocker.patch('multiprocessing.Process')
@@ -70,13 +78,14 @@ def test_get_job_status_found(client):
     )
 
 def test_get_job_result_completed(client):
+    from master.app import main as master_main_app
     app = client.app
     mock_pg_conn = app.state.pg_conn
     mock_cursor = mock_pg_conn.cursor.return_value.__enter__.return_value
     mock_cursor.fetchone.return_value = ('completed',)
 
     job_id = str(uuid.uuid4())
-    job_dir = os.path.join("/tmp/stellgap_jobs", job_id)
+    job_dir = os.path.join(master_main_app.SHARED_DATA_DIR, job_id)
     result_file = os.path.join(job_dir, "alfven_post")
 
     os.makedirs(job_dir, exist_ok=True)
@@ -88,15 +97,13 @@ def test_get_job_result_completed(client):
     assert response.status_code == 200
     assert response.text == "mock result data"
 
-    os.remove(result_file)
-    os.rmdir(job_dir)
-
 def test_preprocessing_integration(client, tmp_path):
     """
     An integration test for the pre-processing logic.
     It uses a real (but small) boozmn file and checks the generated
     tae_data_boozer file.
     """
+    from master.app import main as master_main_app
     # 1. Create a dummy boozmn.dat file in memory
     # This is a highly simplified version of a real boozmn file.
     # It contains 3 surfaces (ns_b=3) and 2 fourier modes (mnboz_b=2).
@@ -159,7 +166,7 @@ def test_preprocessing_integration(client, tmp_path):
     job_id = response.json()["job_id"]
 
     # 4. Check the output
-    job_dir = os.path.join("/tmp/stellgap_jobs", job_id)
+    job_dir = os.path.join(master_main_app.SHARED_DATA_DIR, job_id)
     tae_data_path = os.path.join(job_dir, "tae_data_boozer")
     assert os.path.exists(tae_data_path)
 
